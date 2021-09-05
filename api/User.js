@@ -11,6 +11,8 @@ const GENDERS = ["Male", "Female", "Other"];
 const JWT_EXPIRY = 3600 * 24;      // 1 day
 const JWT_SECRET_KEY = process.env.JWT_SECRET_KEY || 'kjfksfsdjflkdsjflkjsdlfkjhsdlkfj@#*(&@*!^#&@gfdsfdsf';
 
+let jwtList = [];
+
 // Signup
 router.post("/signup", async (req, res) => {
   const { email, name, contact, address, gender, country } = req.body;
@@ -99,7 +101,7 @@ router.post("/signup", async (req, res) => {
       name: result.name,
       email: result.email,
       contact: result.contact
-    }, JWT_SECRET_KEY, { expiresIn: 3600*24 });
+    }, JWT_SECRET_KEY, { expiresIn: JWT_EXPIRY});
   } catch(err) {
     return res.status(400).json({
       status: "FAILED",
@@ -107,6 +109,8 @@ router.post("/signup", async (req, res) => {
       errorMessage: err.message
     });
   }
+
+  jwtList.push(token);
 
   return res.status(201).json({
     status: "SUCCESS",
@@ -161,7 +165,7 @@ router.post("/login", async (req, res) => {
       name: record[0].name,
       email: record[0].email,
       contact: record[0].contact
-    }, JWT_SECRET_KEY, { expiresIn: 3600*24 });
+    }, JWT_SECRET_KEY, { expiresIn: JWT_EXPIRY });
   } catch(err) {
     return res.status(400).json({
       status: "FAILED",
@@ -169,6 +173,8 @@ router.post("/login", async (req, res) => {
       errorMessage: err.message
     });
   }
+
+  jwtList.push(token);
 
   if (isAuthorised) {
     return res.json({
@@ -193,7 +199,7 @@ router.get("/search", async (req, res) => {
 
   const tokenDecoded = jwt.verify(authorization, JWT_SECRET_KEY);
 
-  if (!tokenDecoded || !tokenDecoded.id) {
+  if (!authorization || !tokenDecoded || !tokenDecoded.id || !jwtList.includes(authorization)) {
     return res.status(400).json({
       status: "FAILED",
       message: "Unautorized user",
@@ -239,14 +245,17 @@ router.get("/search", async (req, res) => {
 
 // Logout
 router.get("/logout", async (req, res) => {
+  const { authorization } = req.headers;
   const tokenDecoded = jwt.verify(authorization, JWT_SECRET_KEY);
 
-  if (!tokenDecoded || !tokenDecoded.id) {
+  if (!authorization || !tokenDecoded || !tokenDecoded.id || !jwtList.includes(authorization)) {
     return res.status(400).json({
       status: "FAILED",
       message: "Unautorized user",
     });
   }
+
+  jwtList = jwtList.filter((tok) => tok != authorization);
 
   return res.status(200).json({
     status: "SUCCESS",
