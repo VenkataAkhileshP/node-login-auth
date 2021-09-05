@@ -1,13 +1,15 @@
 const express = require("express");
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-// Password handler
 const bcrypt = require("bcrypt");
 
+require('dotenv').config();
 // mongodb user model
 const User = require("./../models/User");
 
 const GENDERS = ["Male", "Female", "Other"];
+const JWT_EXPIRY = 3600 * 24;      // 1 day
+const JWT_SECRET_KEY = process.env.JWT_SECRET_KEY || 'kjfksfsdjflkdsjflkjsdlfkjhsdlkfj@#*(&@*!^#&@gfdsfdsf';
 
 // Signup
 router.post("/signup", async (req, res) => {
@@ -34,7 +36,7 @@ router.post("/signup", async (req, res) => {
     return res.status(400).json({
       status: "FAILED",
       message: "Please try again!",
-      error: err
+      errorMessage: err.message
     });
   }
   delete req.body.password;
@@ -69,7 +71,7 @@ router.post("/signup", async (req, res) => {
       });
     }
   } catch(err) {
-    return res.status(400).send(err);
+    return res.status(400).send({ errorMessage: err.message });
   }
 
   const newUser = new User({
@@ -86,18 +88,37 @@ router.post("/signup", async (req, res) => {
   try {
     result = await newUser.save();
   } catch(err) {
-    return res.status(400).send(err);
+    return res.status(400).send({ errorMessage: err.message });
+  }
+
+  result.password = null;
+  let token;
+  try {
+    token = jwt.sign({
+      id: result._id,
+      name: result.name,
+      email: result.email,
+      contact: result.contact
+    }, JWT_SECRET_KEY, { expiresIn: 3600*24 });
+  } catch(err) {
+    return res.status(400).json({
+      status: "FAILED",
+      message: "Please try again!",
+      errorMessage: err.message
+    });
   }
 
   return res.status(201).json({
     status: "SUCCESS",
-    message: "Signup successful"
+    message: "Signup successful",
+    autorizationToken: token
   });
 });
 
 // Login
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
+  let record;
 
   if (!email || !password ) {
     return res.status(400).json({
@@ -115,7 +136,7 @@ router.post("/login", async (req, res) => {
 
   let isAuthorised = false;
   try {
-    const record = await User.find({ email });
+    record = await User.find({ email });
     if (record.length < 1) {
       return res.status(400).json({
         status: "FAILED",
@@ -128,14 +149,32 @@ router.post("/login", async (req, res) => {
     return res.status(400).json({
       status: "FAILED",
       message: "Please try again!",
-      error: err
+      errorMessage: err.message
+    });
+  }
+
+  record[0].password = null;
+  let token;
+  try {
+    token = jwt.sign({
+      id: record[0]._id,
+      name: record[0].name,
+      email: record[0].email,
+      contact: record[0].contact
+    }, JWT_SECRET_KEY, { expiresIn: 3600*24 });
+  } catch(err) {
+    return res.status(400).json({
+      status: "FAILED",
+      message: "Please try again!",
+      errorMessage: err.message
     });
   }
 
   if (isAuthorised) {
     return res.json({
       status: "SUCCESS",
-      message: "Logged in successful"
+      message: "Logged in successful",
+      autorizationToken: token
     });
   }
 
@@ -147,9 +186,19 @@ router.post("/login", async (req, res) => {
 
 // Search
 router.get("/search", async (req, res) => {
+  const { authorization } = req.headers;
   const { name } = req.query;
   const contact = req.query.contact ? String(req.query.contact) : null ;
   let results = [];
+
+  const tokenDecoded = jwt.verify(authorization, JWT_SECRET_KEY);
+
+  if (!tokenDecoded || !tokenDecoded.id) {
+    return res.status(400).json({
+      status: "FAILED",
+      message: "Unautorized user",
+    });
+  }
 
   if (!name && !contact ) {
     return res.status(400).json({
@@ -168,9 +217,11 @@ router.get("/search", async (req, res) => {
     return res.status(400).json({
       status: "FAILED",
       message: "Please try again",
-      error: err
+      errorMessage: err.message
     });
   }
+
+  results = results.filter((result) => result._id && tokenDecoded && tokenDecoded.id && result._id != tokenDecoded.id);
 
   if (results.length < 1) {
     return res.status(200).json({
@@ -183,6 +234,23 @@ router.get("/search", async (req, res) => {
     status: "SUCCESS",
     message: "Here are requested users",
     data: results
+  });
+});
+
+// Logout
+router.get("/logout", async (req, res) => {
+  const tokenDecoded = jwt.verify(authorization, JWT_SECRET_KEY);
+
+  if (!tokenDecoded || !tokenDecoded.id) {
+    return res.status(400).json({
+      status: "FAILED",
+      message: "Unautorized user",
+    });
+  }
+
+  return res.status(200).json({
+    status: "SUCCESS",
+    message: "User is successfully logged out"
   });
 });
 
